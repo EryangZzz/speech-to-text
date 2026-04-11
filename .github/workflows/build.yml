@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-macos-arm64:
     runs-on: macos-14
@@ -63,7 +66,7 @@ jobs:
           args: --target aarch64-apple-darwin
 
   build-macos-intel:
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
