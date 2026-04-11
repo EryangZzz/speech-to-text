@@ -7,36 +7,44 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-macos:
-    runs-on: macos-latest
+  build-macos-arm64:
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust stable with both macOS targets
+
+      - name: Install Rust stable (arm64 target)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - name: Install frontend dependencies
         run: npm install
-      - name: Prepare ffmpeg resources (macOS universal)
+
+      - name: Prepare ffmpeg resource (macOS arm64)
         run: |
-          brew install ffmpeg@6
           mkdir -p src-tauri/resources
-          cp "$(brew --prefix ffmpeg@6)/bin/ffmpeg" src-tauri/resources/ffmpeg-macos-arm64
-          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip?arch=x86_64" -o /tmp/ffmpeg-mac-x64.zip
-          unzip -o /tmp/ffmpeg-mac-x64.zip -d /tmp/ffmpeg-x64
-          cp /tmp/ffmpeg-x64/ffmpeg src-tauri/resources/ffmpeg-macos-x64
-          chmod +x src-tauri/resources/ffmpeg-macos-arm64 src-tauri/resources/ffmpeg-macos-x64
-      - name: Configure tauri resources for macOS universal
-        run: npm run prepare:bundle:mac:universal
-      - name: Build Tauri app (Universal Binary)
+          cp node_modules/ffmpeg-static/ffmpeg src-tauri/resources/ffmpeg-macos-arm64
+          chmod +x src-tauri/resources/ffmpeg-macos-arm64
+          file src-tauri/resources/ffmpeg-macos-arm64 | grep arm64
+
+      - name: Verify no local dylib deps (arm64 ffmpeg)
+        run: |
+          bash scripts/verify-macos-binary-deps.sh src-tauri/resources/ffmpeg-macos-arm64
+
+      - name: Configure tauri resources for macOS arm64
+        run: npm run prepare:bundle:mac
+
+      - name: Build Tauri app (macOS arm64)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,24 +60,86 @@ jobs:
           releaseBody: '语音/视频转文本桌面工具'
           releaseDraft: true
           prerelease: false
-          args: --target universal-apple-darwin
+          args: --target aarch64-apple-darwin
 
-  build-windows:
-    runs-on: windows-latest
+  build-macos-intel:
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust stable
+
+      - name: Install Rust stable (x64 target)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - name: Install frontend dependencies
         run: npm install
+
+      - name: Prepare ffmpeg resource (macOS x64)
+        run: |
+          mkdir -p src-tauri/resources
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip?arch=x86_64" -o /tmp/ffmpeg-mac-x64.zip
+          unzip -o /tmp/ffmpeg-mac-x64.zip -d /tmp/ffmpeg-x64
+          cp /tmp/ffmpeg-x64/ffmpeg src-tauri/resources/ffmpeg-macos-x64
+          chmod +x src-tauri/resources/ffmpeg-macos-x64
+          file src-tauri/resources/ffmpeg-macos-x64 | grep x86_64
+
+      - name: Verify no local dylib deps (x64 ffmpeg)
+        run: |
+          bash scripts/verify-macos-binary-deps.sh src-tauri/resources/ffmpeg-macos-x64
+
+      - name: Configure tauri resources for macOS x64
+        run: npm run prepare:bundle:mac:intel
+
+      - name: Build Tauri app (macOS x64)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'WhisperDesktop ${{ github.ref_name }}'
+          releaseBody: '语音/视频转文本桌面工具'
+          releaseDraft: true
+          prerelease: false
+          args: --target x86_64-apple-darwin
+
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        run: npm install
+
       - name: Prepare ffmpeg resources (Windows x64)
         shell: pwsh
         run: |
@@ -77,10 +147,15 @@ jobs:
           Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "$env:TEMP\\ffmpeg-win.zip"
           Expand-Archive -Path "$env:TEMP\\ffmpeg-win.zip" -DestinationPath "$env:TEMP\\ffmpeg-win" -Force
           $ffmpeg = Get-ChildItem -Path "$env:TEMP\\ffmpeg-win" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          if (-not $ffmpeg) { throw "ffmpeg.exe not found" }
           Copy-Item $ffmpeg.FullName "src-tauri/resources/ffmpeg-windows-x64.exe" -Force
+          $size = (Get-Item "src-tauri/resources/ffmpeg-windows-x64.exe").Length
+          if ($size -lt 1000000) { throw "ffmpeg.exe size too small: $size" }
+
       - name: Configure tauri resources for Windows x64
         run: npm run prepare:bundle:win
-      - name: Build Tauri app
+
+      - name: Build Tauri app (Windows x64)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -90,3 +165,4 @@ jobs:
           releaseBody: '语音/视频转文本桌面工具'
           releaseDraft: true
           prerelease: false
+          args: --target x86_64-pc-windows-msvc

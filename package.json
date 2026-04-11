@@ -9,11 +9,15 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "prepare:bundle:mac": "node scripts/configure-tauri.mjs macos-arm64",
+    "prepare:bundle:mac:intel": "node scripts/configure-tauri.mjs macos-x64",
     "prepare:bundle:mac:universal": "node scripts/configure-tauri.mjs macos-universal",
     "prepare:bundle:win": "node scripts/configure-tauri.mjs windows-x64",
-    "build:mac": "npm run prepare:bundle:mac && tauri build",
+    "build:mac": "npm run build:mac:arm",
+    "build:mac:arm": "npm run prepare:bundle:mac && tauri build --target aarch64-apple-darwin",
+    "build:mac:intel": "npm run prepare:bundle:mac:intel && tauri build --target x86_64-apple-darwin",
     "build:win": "npm run prepare:bundle:win && tauri build --target x86_64-pc-windows-msvc",
-    "package:mac:zip": "bash scripts/package-macos-app.sh"
+    "package:mac:zip": "bash scripts/package-macos-app.sh",
+    "verify:mac:deps": "bash scripts/verify-macos-binary-deps.sh src-tauri/resources/ffmpeg-macos-arm64 src-tauri/resources/ffmpeg-macos-x64"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -23,6 +27,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "@vitejs/plugin-vue": "^5.0.0",
+    "ffmpeg-static": "^5.3.0",
     "typescript": "^5.6.0",
     "vite": "^5.4.0"
   }

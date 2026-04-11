@@ -11,6 +11,9 @@ const resourcesByMode = {
   'macos-arm64': {
     'resources/ffmpeg-macos-arm64': 'resources/ffmpeg-macos-arm64',
   },
+  'macos-x64': {
+    'resources/ffmpeg-macos-x64': 'resources/ffmpeg-macos-x64',
+  },
   'macos-universal': {
     'resources/ffmpeg-macos-arm64': 'resources/ffmpeg-macos-arm64',
     'resources/ffmpeg-macos-x64': 'resources/ffmpeg-macos-x64',

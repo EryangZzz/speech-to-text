@@ -75,6 +75,14 @@ npm run build:mac
 - `src-tauri/target/release/bundle/macos/WhisperDesktop.app`
 - `src-tauri/target/release/bundle/dmg/WhisperDesktop_0.1.0_aarch64.dmg`
 
+### macOS Intel（x64）
+```bash
+npm run build:mac:intel
+```
+产物：
+- `src-tauri/target/x86_64-apple-darwin/release/bundle/macos/WhisperDesktop.app`
+- `src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/WhisperDesktop_0.1.0_x64.dmg`
+
 如果要分享 `.app`（不是 `.dmg`），请不要直接拷贝文件夹，先打 zip：
 ```bash
 npm run package:mac:zip
@@ -100,8 +108,9 @@ npm run build:win
 工作流文件：`.github/workflows/build.yml`
 
 已包含：
-- macOS 产物构建
-- Windows NSIS `.exe` 构建
+- macOS arm64 产物构建
+- macOS Intel (x64) 产物构建
+- Windows x64 NSIS `.exe` 构建
 - 构建前自动准备 ffmpeg 资源
 - macOS 自动签名 + 自动公证（当 secrets 配置完整时）
 
