@@ -10,7 +10,20 @@ permissions:
   contents: write
 
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release for this tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: WhisperDesktop ${{ github.ref_name }}
+          body: 语音/视频转文本桌面工具
+          draft: true
+          prerelease: false
+
   build-macos-arm64:
+    needs: create-release
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -48,24 +61,19 @@ jobs:
         run: npm run prepare:bundle:mac
 
       - name: Build Tauri app (macOS arm64)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri build -- --target aarch64-apple-darwin
+
+      - name: Upload macOS arm64 dmg
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'WhisperDesktop ${{ github.ref_name }}'
-          releaseBody: '语音/视频转文本桌面工具'
-          releaseDraft: true
+          tag_name: ${{ github.ref_name }}
+          draft: true
           prerelease: false
-          args: --target aarch64-apple-darwin
+          files: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
   build-macos-intel:
+    needs: create-release
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -105,24 +113,19 @@ jobs:
         run: npm run prepare:bundle:mac:intel
 
       - name: Build Tauri app (macOS x64)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri build -- --target x86_64-apple-darwin
+
+      - name: Upload macOS x64 dmg
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'WhisperDesktop ${{ github.ref_name }}'
-          releaseBody: '语音/视频转文本桌面工具'
-          releaseDraft: true
+          tag_name: ${{ github.ref_name }}
+          draft: true
           prerelease: false
-          args: --target x86_64-apple-darwin
+          files: |
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
 
   build-windows-x64:
+    needs: create-release
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -159,13 +162,13 @@ jobs:
         run: npm run prepare:bundle:win
 
       - name: Build Tauri app (Windows x64)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc
+
+      - name: Upload Windows x64 exe
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'WhisperDesktop ${{ github.ref_name }}'
-          releaseBody: '语音/视频转文本桌面工具'
-          releaseDraft: true
+          tag_name: ${{ github.ref_name }}
+          draft: true
           prerelease: false
-          args: --target x86_64-pc-windows-msvc
+          files: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
