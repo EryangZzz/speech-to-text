@@ -33,11 +33,6 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -49,9 +44,11 @@ jobs:
       - name: Prepare ffmpeg resource (macOS arm64)
         run: |
           mkdir -p src-tauri/resources
-          cp node_modules/ffmpeg-static/ffmpeg src-tauri/resources/ffmpeg-macos-arm64
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip?arch=arm64" -o /tmp/ffmpeg-mac-arm64.zip
+          unzip -o /tmp/ffmpeg-mac-arm64.zip -d /tmp/ffmpeg-arm64
+          cp /tmp/ffmpeg-arm64/ffmpeg src-tauri/resources/ffmpeg-macos-arm64
           chmod +x src-tauri/resources/ffmpeg-macos-arm64
-          file src-tauri/resources/ffmpeg-macos-arm64 | grep arm64
+          file src-tauri/resources/ffmpeg-macos-arm64 | grep "Mach-O 64-bit executable arm64"
 
       - name: Verify no local dylib deps (arm64 ffmpeg)
         run: |
@@ -82,11 +79,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -133,11 +125,6 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: './src-tauri -> target'
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -157,6 +144,13 @@ jobs:
           Copy-Item $ffmpeg.FullName "src-tauri/resources/ffmpeg-windows-x64.exe" -Force
           $size = (Get-Item "src-tauri/resources/ffmpeg-windows-x64.exe").Length
           if ($size -lt 1000000) { throw "ffmpeg.exe size too small: $size" }
+
+      - name: Validate Windows icon asset
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "src-tauri/icons/icon.ico")) { throw "src-tauri/icons/icon.ico not found" }
+          $iconSize = (Get-Item "src-tauri/icons/icon.ico").Length
+          if ($iconSize -lt 1000) { throw "icon.ico size too small: $iconSize" }
 
       - name: Configure tauri resources for Windows x64
         run: npm run prepare:bundle:win
