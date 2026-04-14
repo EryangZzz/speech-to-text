@@ -44,6 +44,7 @@ jobs:
       - name: Prepare ffmpeg resource (macOS arm64)
         run: |
           mkdir -p src-tauri/resources
+          cp node_modules/ffmpeg-static/ffmpeg src-tauri/resources/ffmpeg-macos-arm64
           chmod +x src-tauri/resources/ffmpeg-macos-arm64
           file src-tauri/resources/ffmpeg-macos-arm64 | grep "Mach-O 64-bit executable arm64"
 
