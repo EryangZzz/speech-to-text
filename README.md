@@ -152,12 +152,30 @@ brew install cmake
 
 ### 给别人后提示“已损坏”怎么办
 这通常是 Gatekeeper 对未公证应用的拦截，不一定是文件真的损坏。  
-临时测试可让用户执行：
+
+优先尝试图形化方式（无命令行）：
+1. 在 Finder 中右键 `WhisperDesktop.app` -> `打开`
+2. 弹窗里点击 `打开`
+3. 如果仍被拦截，进入 `系统设置 -> 隐私与安全性`
+4. 在页面底部找到被拦截提示，点击 `仍要打开` / `允许打开`
+
+如果看不到 `仍要打开` / `允许打开`，再使用命令行方式（临时测试）：
 ```bash
 xattr -dr com.apple.quarantine /Applications/WhisperDesktop.app
 ```
 然后再打开应用。
 
+还可以临时开启“允许任何来源”（不推荐普通用户长期使用）：
+```bash
+sudo spctl --master-disable
+```
+执行后到 `系统设置 -> 隐私与安全性`，可看到“允许从以下位置下载的 App：任何来源”选项。  
+测试完成后建议恢复：
+```bash
+sudo spctl --master-enable
+```
+
 注意：
-- 这是临时绕过方式，仅用于测试分发。
+- `xattr` / “任何来源”都属于临时绕过方式，仅用于测试分发。
+- “允许任何来源”会降低系统安全性，不建议长期开启。
 - 正式发布应使用 Developer ID 签名 + Apple notarization，避免用户手动执行命令。
