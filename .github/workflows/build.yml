@@ -44,9 +44,6 @@ jobs:
       - name: Prepare ffmpeg resource (macOS arm64)
         run: |
           mkdir -p src-tauri/resources
-          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip?arch=arm64" -o /tmp/ffmpeg-mac-arm64.zip
-          unzip -o /tmp/ffmpeg-mac-arm64.zip -d /tmp/ffmpeg-arm64
-          cp /tmp/ffmpeg-arm64/ffmpeg src-tauri/resources/ffmpeg-macos-arm64
           chmod +x src-tauri/resources/ffmpeg-macos-arm64
           file src-tauri/resources/ffmpeg-macos-arm64 | grep "Mach-O 64-bit executable arm64"
 
