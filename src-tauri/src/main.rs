@@ -61,6 +61,7 @@ async fn transcribe_audio(
     input_type: String,
     model_size: String,
     language: Option<String>,
+    clean_noise: Option<bool>,
 ) -> Result<Vec<transcribe::Segment>, String> {
     {
         let mut is_transcribing = state.transcribing.lock().await;
@@ -71,7 +72,15 @@ async fn transcribe_audio(
     }
 
     let flag = state.transcribing.clone();
-    let result = do_transcribe(app, audio_input, input_type, model_size, language).await;
+    let result = do_transcribe(
+        app,
+        audio_input,
+        input_type,
+        model_size,
+        language,
+        clean_noise.unwrap_or(true),
+    )
+    .await;
     *flag.lock().await = false;
 
     result
@@ -83,6 +92,7 @@ async fn do_transcribe(
     input_type: String,
     model_size: String,
     language: Option<String>,
+    clean_noise: bool,
 ) -> Result<Vec<transcribe::Segment>, String> {
     let size = parse_model_size(&model_size)?;
     let exists = model_exists(&app, &size).map_err(|e| e.to_string())?;
@@ -107,6 +117,7 @@ async fn do_transcribe(
         audio_path: audio_path.clone(),
         language,
         translate: false,
+        clean_noise,
     };
 
     let app_clone = app.clone();

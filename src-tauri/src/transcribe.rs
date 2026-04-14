@@ -15,6 +15,7 @@ pub struct TranscribeOptions {
     pub audio_path: String,
     pub language: Option<String>,
     pub translate: bool,
+    pub clean_noise: bool,
 }
 
 pub fn transcribe(app: AppHandle, opts: TranscribeOptions) -> Result<Vec<Segment>> {
@@ -69,12 +70,104 @@ pub fn transcribe(app: AppHandle, opts: TranscribeOptions) -> Result<Vec<Segment
             .with_context(|| format!("获取第 {} 段结束时间失败", i))?
             * 10;
 
+        let cleaned = if opts.clean_noise {
+            clean_transcript_text(text.trim())
+        } else {
+            Some(text.trim().to_string())
+        };
+
+        let Some(cleaned_text) = cleaned else {
+            continue;
+        };
+
         segments.push(Segment {
             start_ms,
             end_ms,
-            text: text.trim().to_string(),
+            text: cleaned_text,
         });
     }
 
     Ok(segments)
+}
+
+fn clean_transcript_text(input: &str) -> Option<String> {
+    let t = input.trim();
+    if t.is_empty() {
+        return None;
+    }
+
+    // Common non-speech tags emitted by Whisper-like models.
+    let marker_words_exact = [
+        "music",
+        "applause",
+        "laughter",
+        "laughs",
+        "sigh",
+        "silence",
+        "noise",
+        "background music",
+        "instrumental",
+    ];
+    let marker_words_bracketed = ["music", "applause", "laughter", "noise", "silence", "音乐", "掌声", "笑声", "无声"];
+
+    let normalized = t
+        .trim_matches(|c: char| {
+            c == '['
+                || c == ']'
+                || c == '('
+                || c == ')'
+                || c == '【'
+                || c == '】'
+                || c == '（'
+                || c == '）'
+                || c == '<'
+                || c == '>'
+                || c == ' '
+                || c == '-'
+                || c == ':'
+        })
+        .to_lowercase();
+
+    if marker_words_exact.iter().any(|w| normalized == *w) {
+        return None;
+    }
+
+    // Drop explicit bracketed-only markers like "[music]" "(applause)".
+    let bracketed_only = (t.starts_with('[') && t.ends_with(']'))
+        || (t.starts_with('(') && t.ends_with(')'))
+        || (t.starts_with('【') && t.ends_with('】'))
+        || (t.starts_with('（') && t.ends_with('）'));
+    if bracketed_only && marker_words_bracketed.iter().any(|w| normalized.contains(&w.to_lowercase())) {
+        return None;
+    }
+
+    Some(t.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_transcript_text;
+
+    #[test]
+    fn drops_music_markers() {
+        assert_eq!(clean_transcript_text("[music]"), None);
+        assert_eq!(clean_transcript_text("（音乐）"), None);
+        assert_eq!(clean_transcript_text("【掌声】"), None);
+    }
+
+    #[test]
+    fn keeps_normal_speech() {
+        assert_eq!(
+            clean_transcript_text("今天我们开始开会"),
+            Some("今天我们开始开会".to_string())
+        );
+        assert_eq!(
+            clean_transcript_text("Please open the report."),
+            Some("Please open the report.".to_string())
+        );
+        assert_eq!(
+            clean_transcript_text("这段音乐很好听"),
+            Some("这段音乐很好听".to_string())
+        );
+    }
 }

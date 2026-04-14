@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "Whisper 语音转文本",
-        "width": 960,
-        "height": 640,
-        "minWidth": 720,
-        "minHeight": 520,
+        "width": 1240,
+        "height": 820,
+        "minWidth": 1180,
+        "minHeight": 760,
         "resizable": true,
         "fullscreen": false
       }
@@ -27,7 +27,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "dmg"
+    ],
     "resources": {
       "resources/ffmpeg-macos-arm64": "resources/ffmpeg-macos-arm64"
     },
