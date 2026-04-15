@@ -90,6 +90,12 @@ npm run package:mac:zip
 产物：
 - `src-tauri/target/release/bundle/macos/WhisperDesktop.app.zip`
 
+如果你刚构建的是指定架构，建议使用对应命令，避免打到旧目录：
+```bash
+npm run package:mac:zip:arm
+npm run package:mac:zip:intel
+```
+
 ### macOS Universal（CI 推荐）
 ```bash
 npm run prepare:bundle:mac:universal
@@ -112,19 +118,15 @@ npm run build:win
 - macOS Intel (x64) 产物构建
 - Windows x64 NSIS `.exe` 构建
 - 构建前自动准备 ffmpeg 资源
-- macOS 自动签名 + 自动公证（当 secrets 配置完整时）
+- Draft Release 自动上传各平台安装包（dmg/exe）
 
-### macOS 自动签名/公证所需 Secrets
+### macOS 签名/公证说明（当前状态）
 
-在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 添加：
-- `APPLE_CERTIFICATE`：Developer ID Application 证书（`.p12`）的 base64 内容
-- `APPLE_CERTIFICATE_PASSWORD`：`.p12` 密码
-- `APPLE_SIGNING_IDENTITY`：签名身份，例如 `Developer ID Application: Your Name (TEAMID)`
-- `APPLE_ID`：Apple ID 邮箱
-- `APPLE_PASSWORD`：App-specific password（不是 Apple 登录密码）
-- `APPLE_TEAM_ID`：Apple Developer Team ID
-
-注意：没有这些 secrets 时，流程仍可构建，但不会完成正式签名/公证。
+当前 workflow 未包含自动签名/自动公证步骤。  
+如需“免 xattr、直接双击可安装”的分发体验，需要后续在 workflow 中补充：
+- 导入 Developer ID 证书
+- `codesign` 签名
+- `notarytool` 提交公证并 `stapler` 装订
 
 触发方式：
 ```bash

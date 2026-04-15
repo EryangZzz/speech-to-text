@@ -15,8 +15,8 @@
         "title": "Whisper 语音转文本",
         "width": 1240,
         "height": 820,
-        "minWidth": 1180,
-        "minHeight": 760,
+        "minWidth": 1024,
+        "minHeight": 680,
         "resizable": true,
         "fullscreen": false
       }
@@ -31,7 +31,7 @@
       "dmg"
     ],
     "resources": {
-      "resources/ffmpeg-macos-arm64": "resources/ffmpeg-macos-arm64"
+      "resources/ffmpeg-macos-x64": "resources/ffmpeg-macos-x64"
     },
     "macOS": {
       "minimumSystemVersion": "12.0"

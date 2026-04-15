@@ -12,12 +12,14 @@ interface Segment {
 
 type InputType = 'local' | 'url'
 type ModelSize = 'tiny' | 'base' | 'small' | 'medium' | 'big'
+type PerformanceMode = 'memory' | 'balanced' | 'fast'
 
 const currentInputType = ref<InputType>('local')
 const selectedFilePath = ref<string | null>(null)
 const urlValue = ref('')
 const modelSize = ref<ModelSize>('base')
 const language = ref('')
+const performanceMode = ref<PerformanceMode>('balanced')
 
 const modelReady = ref<boolean | null>(null)
 const modelsDir = ref('')
@@ -28,6 +30,9 @@ const cleanNoise = ref(true)
 
 const progressPercent = ref(0)
 const progressIndeterminate = ref(false)
+const downloadTotalBytes = ref(0)
+const downloadDoneBytes = ref(0)
+const downloadSpeedBps = ref(0)
 const statusMsg = ref('准备就绪：选择文件或输入 URL 后即可开始转写')
 
 const segments = ref<Segment[]>([])
@@ -59,6 +64,16 @@ const minuteEstimate = computed(() => {
   return Math.max(1, Math.round(end / 60000))
 })
 const timelineSegments = computed(() => segments.value)
+const downloadSummary = computed(() => {
+  if (!isDownloading.value) return ''
+  const doneMb = downloadDoneBytes.value / 1024 / 1024
+  const totalMb = downloadTotalBytes.value > 0 ? downloadTotalBytes.value / 1024 / 1024 : 0
+  const speedMb = downloadSpeedBps.value / 1024 / 1024
+  if (totalMb > 0) {
+    return `${doneMb.toFixed(1)} / ${totalMb.toFixed(1)} MB · ${speedMb.toFixed(2)} MB/s`
+  }
+  return `${doneMb.toFixed(1)} MB · ${speedMb.toFixed(2)} MB/s`
+})
 
 onMounted(async () => {
   const ulDrop = await listen<{ paths: string[] }>('tauri://drag-drop', (event) => {
@@ -154,12 +169,21 @@ async function downloadModel() {
   isDownloading.value = true
   progressPercent.value = 0
   progressIndeterminate.value = false
+  downloadTotalBytes.value = 0
+  downloadDoneBytes.value = 0
+  downloadSpeedBps.value = 0
   statusMsg.value = '正在下载模型...'
 
-  const ul = await listen<{ percent: number }>('model-download-progress', (event) => {
+  const ul = await listen<{ percent: number; downloaded: number; total: number; speed_bps?: number }>(
+    'model-download-progress',
+    (event) => {
     progressPercent.value = event.payload.percent
+    downloadDoneBytes.value = event.payload.downloaded ?? 0
+    downloadTotalBytes.value = event.payload.total ?? 0
+    downloadSpeedBps.value = event.payload.speed_bps ?? 0
     statusMsg.value = `模型下载中... ${event.payload.percent.toFixed(1)}%`
-  })
+    },
+  )
 
   try {
     await invoke('download_model_cmd', { size: modelSize.value })
@@ -172,6 +196,7 @@ async function downloadModel() {
     isDownloading.value = false
     progressPercent.value = 0
     progressIndeterminate.value = false
+    downloadSpeedBps.value = 0
   }
 }
 
@@ -211,6 +236,18 @@ async function startTranscribe() {
     statusMsg.value = `转写中... ${event.payload.percent}%`
   })
 
+  const ulStage = await listen<{ stage: string; percent: number }>('transcribe-stage', (event) => {
+    progressIndeterminate.value = false
+    progressPercent.value = event.payload.percent
+    if (event.payload.stage === 'loading_model') {
+      statusMsg.value = `加载模型中... ${event.payload.percent}%`
+    } else if (event.payload.stage === 'decoding_audio') {
+      statusMsg.value = `解析音频中... ${event.payload.percent}%`
+    } else {
+      statusMsg.value = `准备推理中... ${event.payload.percent}%`
+    }
+  })
+
   try {
     const result = await invoke<Segment[]>('transcribe_audio', {
       audioInput,
@@ -218,6 +255,7 @@ async function startTranscribe() {
       modelSize: modelSize.value,
       language: language.value || null,
       cleanNoise: cleanNoise.value,
+      performanceMode: performanceMode.value,
     })
     segments.value = result
     resultText.value = result.map((s) => s.text).join('\n')
@@ -227,6 +265,7 @@ async function startTranscribe() {
   } finally {
     if (ulMedia) ulMedia()
     ulTranscribe()
+    ulStage()
     isTranscribing.value = false
     progressPercent.value = 0
     progressIndeterminate.value = false
@@ -318,29 +357,42 @@ function clearResultText() {
         <div class="card">
           <div class="section-title">模型与语言</div>
 
-          <label>模型规格</label>
-          <select v-model="modelSize" @change="checkModel">
-            <option value="tiny">tiny (~75MB)</option>
-            <option value="base">base (~142MB)</option>
-            <option value="small">small (~466MB)</option>
-            <option value="medium">medium (~1.5GB)</option>
-            <option value="big">big / large-v3 (~3.1GB)</option>
-          </select>
+          <div class="field-stack">
+            <div class="field">
+              <label>模型规格</label>
+              <select v-model="modelSize" @change="checkModel">
+                <option value="tiny">tiny (~75MB)</option>
+                <option value="base">base (~142MB)</option>
+                <option value="small">small (~466MB)</option>
+                <option value="medium">medium (~1.5GB)</option>
+                <option value="big">big / large-v3 (~3.1GB)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>语言</label>
+              <select v-model="language">
+                <option value="">自动检测</option>
+                <option value="zh">中文</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>性能模式</label>
+              <select v-model="performanceMode">
+                <option value="memory">省内存（更慢）</option>
+                <option value="balanced">均衡（推荐）</option>
+                <option value="fast">极速（更快，可能略降精度）</option>
+              </select>
+            </div>
+          </div>
 
           <p class="inline-note ok" v-if="modelReady === true">模型已就绪</p>
           <p class="inline-note warn" v-else-if="modelReady === false">模型未下载</p>
           <p class="inline-note" v-else>检查中...</p>
-
-          <label>语言</label>
-          <select v-model="language">
-            <option value="">自动检测</option>
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-            <option value="ko">한국어</option>
-            <option value="fr">Français</option>
-            <option value="de">Deutsch</option>
-          </select>
 
           <label class="toggle-line">
             <input v-model="cleanNoise" type="checkbox" />
@@ -370,6 +422,7 @@ function clearResultText() {
               />
             </div>
           </div>
+          <p v-if="isDownloading" class="download-meta">{{ downloadSummary }}</p>
           <p class="status">{{ statusMsg }}</p>
           <p class="noise-note">遇到误过滤时，可关闭“过滤非语音标签”后重试。</p>
         </div>
@@ -632,6 +685,16 @@ textarea:focus {
 .inline-note.ok { color: #0b6e58; }
 .inline-note.warn { color: #b5512a; }
 
+.field-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
 .row-actions {
   margin-top: 10px;
   display: grid;
@@ -719,6 +782,13 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   font-size: 12px;
   color: var(--muted);
   min-height: 18px;
+}
+
+.download-meta {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #4e6f6a;
+  font-variant-numeric: tabular-nums;
 }
 
 .noise-note {
@@ -876,6 +946,52 @@ textarea {
   }
   textarea {
     min-height: 0;
+  }
+}
+
+@media (max-height: 860px) {
+  .shell {
+    padding: 14px;
+  }
+  .hero {
+    margin-bottom: 10px;
+  }
+  .hero h1 {
+    font-size: 26px;
+    margin: 6px 0 2px;
+  }
+  .subtitle {
+    display: none;
+  }
+  .layout {
+    gap: 12px;
+  }
+  .control-panel {
+    padding: 10px;
+    gap: 8px;
+  }
+  .card {
+    padding: 10px;
+  }
+  .drop {
+    padding: 12px;
+  }
+  .drop-meta {
+    display: none;
+  }
+  .row-actions {
+    margin-top: 8px;
+    gap: 6px;
+  }
+  .result-panel {
+    gap: 8px;
+    padding: 10px;
+  }
+  .stats article {
+    padding: 9px 10px;
+  }
+  .stats strong {
+    font-size: 18px;
   }
 }
 </style>

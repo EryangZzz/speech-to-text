@@ -47,6 +47,12 @@ for (const rel of Object.keys(selected.resources)) {
     console.error(`Missing resource for ${mode}: ${abs}`)
     process.exit(1)
   }
+
+  const stat = fs.statSync(abs)
+  if (stat.size < 1_000_000) {
+    console.error(`Resource too small for ${mode}: ${abs} (${stat.size} bytes)`)
+    process.exit(1)
+  }
 }
 
 config.bundle = config.bundle || {}

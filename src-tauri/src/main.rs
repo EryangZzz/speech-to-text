@@ -62,6 +62,7 @@ async fn transcribe_audio(
     model_size: String,
     language: Option<String>,
     clean_noise: Option<bool>,
+    performance_mode: Option<String>,
 ) -> Result<Vec<transcribe::Segment>, String> {
     {
         let mut is_transcribing = state.transcribing.lock().await;
@@ -79,6 +80,7 @@ async fn transcribe_audio(
         model_size,
         language,
         clean_noise.unwrap_or(true),
+        performance_mode.unwrap_or_else(|| "balanced".to_string()),
     )
     .await;
     *flag.lock().await = false;
@@ -93,6 +95,7 @@ async fn do_transcribe(
     model_size: String,
     language: Option<String>,
     clean_noise: bool,
+    performance_mode: String,
 ) -> Result<Vec<transcribe::Segment>, String> {
     let size = parse_model_size(&model_size)?;
     let exists = model_exists(&app, &size).map_err(|e| e.to_string())?;
@@ -115,16 +118,37 @@ async fn do_transcribe(
     let opts = transcribe::TranscribeOptions {
         model_path: mp.to_string_lossy().to_string(),
         audio_path: audio_path.clone(),
-        language,
+        language: language.clone(),
         translate: false,
         clean_noise,
+        performance_mode,
     };
 
     let app_clone = app.clone();
+    let mode_for_retry = opts.performance_mode.clone();
     let result = tokio::task::spawn_blocking(move || transcribe::transcribe(app_clone, opts))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string());
+
+    let result = match (result, mode_for_retry.as_str()) {
+        (Err(e), "fast") if e.contains("whisper 推理失败") => {
+            let retry_opts = transcribe::TranscribeOptions {
+                model_path: mp.to_string_lossy().to_string(),
+                audio_path: audio_path.clone(),
+                language,
+                translate: false,
+                clean_noise,
+                performance_mode: "balanced".to_string(),
+            };
+            let retry_app = app.clone();
+            tokio::task::spawn_blocking(move || transcribe::transcribe(retry_app, retry_opts))
+                .await
+                .map_err(|er| er.to_string())?
+                .map_err(|er| format!("极速模式失败，回退均衡模式仍失败: {}", er))
+        }
+        (other, _) => other,
+    };
 
     if is_temp {
         let _ = std::fs::remove_file(&audio_path);

@@ -66,8 +66,11 @@ pub fn decode_audio(app: &AppHandle, file_path: &str) -> Result<Vec<f32>> {
     let output = Command::new(&ffmpeg)
         .args([
             "-y",
+            "-threads",
+            "0",
             "-i",
             file_path,
+            "-vn",
             "-ar",
             "16000",
             "-ac",

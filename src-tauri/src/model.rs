@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -144,10 +145,22 @@ pub async fn download_model(app: AppHandle, size: ModelSize) -> Result<PathBuf> 
         .with_context(|| format!("创建/打开临时文件失败: {:?}", tmp_path))?;
 
     let mut stream = response.bytes_stream();
+    let started_at = Instant::now();
+    let mut last_sample_at = Instant::now();
+    let mut last_sample_bytes = downloaded;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.with_context(|| "下载过程中网络中断")?;
         file.write_all(&chunk)?;
         downloaded += chunk.len() as u64;
+
+        let now = Instant::now();
+        let sample_elapsed = now.duration_since(last_sample_at).as_secs_f64();
+        let delta_bytes = downloaded.saturating_sub(last_sample_bytes);
+        let speed_bps = if sample_elapsed > 0.0 {
+            delta_bytes as f64 / sample_elapsed
+        } else {
+            0.0
+        };
 
         let percent = if total > 0 {
             downloaded as f32 / total as f32 * 100.0
@@ -161,8 +174,13 @@ pub async fn download_model(app: AppHandle, size: ModelSize) -> Result<PathBuf> 
                 "downloaded": downloaded,
                 "total": total,
                 "percent": percent,
+                "speed_bps": speed_bps,
+                "elapsed_secs": started_at.elapsed().as_secs_f64(),
             }),
         );
+
+        last_sample_at = now;
+        last_sample_bytes = downloaded;
     }
     file.flush()?;
     drop(file);

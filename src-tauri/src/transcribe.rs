@@ -16,16 +16,29 @@ pub struct TranscribeOptions {
     pub language: Option<String>,
     pub translate: bool,
     pub clean_noise: bool,
+    pub performance_mode: String,
 }
 
 pub fn transcribe(app: AppHandle, opts: TranscribeOptions) -> Result<Vec<Segment>> {
+    let _ = app.emit(
+        "transcribe-stage",
+        serde_json::json!({ "stage": "loading_model", "percent": 8 }),
+    );
     let ctx =
         WhisperContext::new_with_params(&opts.model_path, WhisperContextParameters::default())
             .with_context(|| format!("无法加载模型: {}", opts.model_path))?;
 
+    let _ = app.emit(
+        "transcribe-stage",
+        serde_json::json!({ "stage": "decoding_audio", "percent": 22 }),
+    );
     let samples = crate::audio::decode_audio(&app, &opts.audio_path)
         .with_context(|| format!("音视频解码失败: {}", opts.audio_path))?;
 
+    let _ = app.emit(
+        "transcribe-stage",
+        serde_json::json!({ "stage": "running_inference", "percent": 30 }),
+    );
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
 
     match opts.language.as_deref() {
@@ -37,6 +50,7 @@ pub fn transcribe(app: AppHandle, opts: TranscribeOptions) -> Result<Vec<Segment
     params.set_print_realtime(false);
     params.set_print_progress(false);
     params.set_print_timestamps(true);
+    apply_performance_mode(&mut params, &opts.performance_mode);
 
     let app_clone = app.clone();
     let cb: Box<dyn FnMut(i32)> = Box::new(move |progress: i32| {
@@ -88,6 +102,35 @@ pub fn transcribe(app: AppHandle, opts: TranscribeOptions) -> Result<Vec<Segment
     }
 
     Ok(segments)
+}
+
+fn apply_performance_mode(
+    params: &mut FullParams<'_, '_>,
+    performance_mode: &str,
+) {
+    let cpu_count = std::thread::available_parallelism()
+        .map(|n| n.get() as i32)
+        .unwrap_or(4);
+    let max_threads = 12;
+    let reserve = if cpu_count >= 12 {
+        3
+    } else if cpu_count >= 8 {
+        2
+    } else {
+        1
+    };
+    let balanced_threads = (cpu_count - reserve).clamp(2, max_threads);
+    let fast_threads = (cpu_count - (reserve - 1).max(0)).clamp(2, max_threads);
+    let memory_threads = if cpu_count >= 8 { 3 } else { 2 };
+
+    let threads = match performance_mode {
+        "memory" => memory_threads,
+        "fast" => fast_threads,
+        _ => balanced_threads,
+    };
+    params.set_n_threads(threads);
+
+    // Keep fast mode stable across platforms by avoiding experimental speed_up.
 }
 
 fn clean_transcript_text(input: &str) -> Option<String> {
