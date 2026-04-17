@@ -3,9 +3,14 @@ import path from 'node:path'
 
 const mode = process.argv[2] || process.env.BUNDLE_MODE || 'macos-arm64'
 const root = process.cwd()
-const configPath = path.join(root, 'src-tauri', 'tauri.conf.json')
-const raw = fs.readFileSync(configPath, 'utf8')
-const config = JSON.parse(raw)
+const srcTauriDir = path.join(root, 'src-tauri')
+const configPath = path.join(srcTauriDir, 'tauri.conf.json')
+const genDir = path.join(srcTauriDir, 'gen')
+
+if (!fs.existsSync(configPath)) {
+  console.error(`Missing base Tauri config: ${configPath}`)
+  process.exit(1)
+}
 
 const bundleByMode = {
   'macos-arm64': {
@@ -42,7 +47,7 @@ if (!selected) {
 }
 
 for (const rel of Object.keys(selected.resources)) {
-  const abs = path.join(root, 'src-tauri', rel)
+  const abs = path.join(srcTauriDir, rel)
   if (!fs.existsSync(abs)) {
     console.error(`Missing resource for ${mode}: ${abs}`)
     process.exit(1)
@@ -55,9 +60,17 @@ for (const rel of Object.keys(selected.resources)) {
   }
 }
 
-config.bundle = config.bundle || {}
-config.bundle.resources = selected.resources
-config.bundle.targets = selected.targets
+const raw = fs.readFileSync(configPath, 'utf8')
+JSON.parse(raw)
 
-fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8')
-console.log(`Configured tauri.conf.json for ${mode}`)
+const generatedConfig = {
+  bundle: {
+    resources: selected.resources,
+    targets: selected.targets,
+  },
+}
+
+fs.mkdirSync(genDir, { recursive: true })
+const generatedPath = path.join(genDir, `tauri.bundle.${mode}.json`)
+fs.writeFileSync(generatedPath, JSON.stringify(generatedConfig, null, 2) + '\n', 'utf8')
+console.log(`Generated Tauri bundle config for ${mode}: ${generatedPath}`)

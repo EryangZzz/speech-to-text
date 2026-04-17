@@ -1,182 +1,316 @@
 # WhisperDesktop
 
-A local desktop speech/video-to-text app built with Tauri + Rust + Vue 3.
+WhisperDesktop is a local desktop speech / video transcription app built with Tauri + Rust + Vue 3.
 
-Supports:
-- Local file drag-and-drop / file picker
-- URL download and transcription
-- Whisper model download and management
+The goal is a practical desktop tool that supports local files, remote URL fetching, Whisper model management, and TXT / SRT export.
+
+## Features
+
+- Drag and drop local audio / video files
+- Download media from URL before transcription
+- Download, open, and clear Whisper models
+- `memory`, `balanced`, and `fast` performance modes
+- Full timeline preview plus editable transcript text
 - Export to TXT / SRT
+- Packaging for macOS Apple Silicon, macOS Intel, and Windows x64
 
-## 1. Requirements
+## Stack
 
-### macOS development/packaging
+- Frontend: Vue 3 + TypeScript + Vite
+- Desktop shell: Tauri 2
+- Backend: Rust
+- Inference: `whisper-rs`
+- Audio decoding: bundled `ffmpeg`
+
+## Project Layout
+
+- `src/`: Vue frontend
+- `src-tauri/src/`: Rust commands, transcription, model, and export logic
+- `src-tauri/resources/`: platform-specific ffmpeg binaries
+- `scripts/`: build, resource preparation, and packaging helpers
+- `.github/workflows/build.yml`: multi-platform GitHub Actions workflow
+
+## Requirements
+
+### Common
+
 - Node.js 20+
 - Rust stable
-- `cmake` (required by `whisper-rs` build)
+- `npm`
+
+### macOS development / packaging
+
 - Xcode Command Line Tools
+- `cmake`
 
 Install example:
+
 ```bash
 xcode-select --install
 brew install cmake
 ```
 
-### Windows packaging
-- Recommended: build in GitHub Actions (`windows-latest`)
-- Or run `npm run build:win` on a Windows machine
+### Windows local packaging
 
-## 2. Install Dependencies
+- Windows 10/11 x64
+- PowerShell 5+ or PowerShell 7+
+- Visual Studio C++ Build Tools / Rust Windows toolchain
+
+Notes:
+
+- `npm run build:win` automatically downloads and prepares `ffmpeg-windows-x64.exe`
+- Windows NSIS installers cannot be built natively on macOS
+
+## Install Dependencies
 
 ```bash
 npm install
 ```
 
-## 3. Run in Development
+## Run in Development
 
 ```bash
 npm run tauri dev
 ```
 
-## 4. Model Storage and Uninstall Behavior
+Notes:
 
-### Model download location
-Models are downloaded to the `models` subdirectory under the app data directory.
-Current app identifier: `com.example.whisper-desktop`.
+- In development, the frontend is served by Vite
+- The first Rust build can take a while
+
+## How the App Works
+
+### Input Sources
+
+- Local file: drag and drop, or click to choose a file
+- URL: provide a directly downloadable audio / video URL
+
+### Model and Language
+
+- Model sizes: `tiny`, `base`, `small`, `medium`, `big`
+- Language: auto-detect or select manually
+- Performance modes:
+  - `memory`: lower memory usage, slower
+  - `balanced`: default recommended mode
+  - `fast`: faster, with one automatic fallback to `balanced` if inference fails
+
+### Results
+
+- The main transcript text area is editable
+- The timeline panel shows all segments
+- TXT export uses the edited text when available
+- SRT export always uses the original segment timestamps
+
+## Model Storage and Cleanup
+
+Models are stored in the `models` directory under the app data directory.
+
+Current app identifier:
+
+```text
+com.example.whisper-desktop
+```
+
 Default paths:
+
 - macOS: `~/Library/Application Support/com.example.whisper-desktop/models`
-- Windows: `%APPDATA%\\com.example.whisper-desktop\\models`
+- Windows: `%APPDATA%\com.example.whisper-desktop\models`
 
-### User-visible / cleanup actions
 The app UI provides:
-- Show model directory
+
 - Open model directory
-- Clear models (delete downloaded models)
+- Clear models
 
-### Uninstall behavior
-- macOS (`.dmg` drag-and-drop install): user data directory is not removed automatically. It is recommended to click "Clear Models" in the app before uninstalling.
-- Windows (NSIS): uninstall hook is configured to remove `%APPDATA%\\com.example.whisper-desktop\\models`.
+Uninstall behavior:
 
-## 5. Resource Files (ffmpeg)
+- macOS: removing the app does not remove downloaded models automatically
+- Windows: the NSIS uninstall hook attempts to remove `%APPDATA%\com.example.whisper-desktop\models`
 
-Before packaging, prepare platform-specific ffmpeg binaries:
+## Packaging Resources
+
+Packaging requires the matching ffmpeg binary for the target platform:
+
 - `src-tauri/resources/ffmpeg-macos-arm64`
-- `src-tauri/resources/ffmpeg-macos-x64` (required only for universal mac package)
+- `src-tauri/resources/ffmpeg-macos-x64`
 - `src-tauri/resources/ffmpeg-windows-x64.exe`
 
-This project includes resource-switch scripts so each package only includes required platform resources.
+Current strategy:
 
-## 6. Packaging
+- macOS arm64: copied from `ffmpeg-static`
+- macOS x64: prepared by script or CI
+- Windows x64: downloaded automatically in local Windows builds and in GitHub Actions
 
-### macOS (can be built directly on current machine)
+## Manual Packaging
+
+### macOS Apple Silicon
+
 ```bash
-npm run build:mac
+npm run build:mac:arm
 ```
-Outputs:
-- `src-tauri/target/release/bundle/macos/WhisperDesktop.app`
-- `src-tauri/target/release/bundle/dmg/WhisperDesktop_0.1.0_aarch64.dmg`
 
-### macOS Intel (x64)
+Main output:
+
+- `src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/WhisperDesktop_0.1.0_aarch64.dmg`
+
+### macOS Intel
+
 ```bash
 npm run build:mac:intel
 ```
-Outputs:
-- `src-tauri/target/x86_64-apple-darwin/release/bundle/macos/WhisperDesktop.app`
+
+Main output:
+
 - `src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/WhisperDesktop_0.1.0_x64.dmg`
 
-If you want to share `.app` (instead of `.dmg`), do not copy the app folder directly. Package it as zip first:
-```bash
-npm run package:mac:zip
-```
-Output:
-- `src-tauri/target/release/bundle/macos/WhisperDesktop.app.zip`
+### macOS Universal
 
-### macOS Universal (CI recommended)
 ```bash
-npm run prepare:bundle:mac:universal
-npm run tauri build -- --target universal-apple-darwin
+npm run build:mac:universal
 ```
 
-### Windows (run on Windows machine)
+Notes:
+
+- Both Rust targets must be installed
+- Both macOS ffmpeg binaries must be available
+
+### Windows x64
+
+Run this on a Windows machine:
+
 ```bash
 npm run build:win
 ```
-Output (on Windows machine):
-- `src-tauri/target/release/bundle/nsis/*.exe`
 
-## 7. GitHub Actions Auto Packaging
+Main output:
 
-Workflow file: `.github/workflows/build.yml`
+- `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe`
 
-Included:
-- macOS arm64 build
-- macOS Intel (x64) build
-- Windows x64 NSIS `.exe` build
-- Automatic ffmpeg resource preparation before build
-- macOS automatic signing + notarization (when all secrets are configured)
+## Zip the `.app` for Distribution
 
-### Secrets required for macOS signing/notarization
+If you want to distribute a `.app` instead of a `.dmg`, zip it first. Do not send the raw `.app` bundle directly.
 
-In GitHub repo `Settings -> Secrets and variables -> Actions`, add:
-- `APPLE_CERTIFICATE`: base64 content of Developer ID Application certificate (`.p12`)
-- `APPLE_CERTIFICATE_PASSWORD`: password for `.p12`
-- `APPLE_SIGNING_IDENTITY`: signing identity, for example `Developer ID Application: Your Name (TEAMID)`
-- `APPLE_ID`: Apple ID email
-- `APPLE_PASSWORD`: app-specific password (not Apple account login password)
-- `APPLE_TEAM_ID`: Apple Developer Team ID
+```bash
+npm run package:mac:zip:arm
+npm run package:mac:zip:intel
+```
 
-Note: if these secrets are not provided, build can still run, but formal signing/notarization will not be completed.
+## GitHub Actions Packaging
 
-Trigger:
+Workflow file:
+
+```text
+.github/workflows/build.yml
+```
+
+Current workflow behavior:
+
+- Builds macOS Apple Silicon
+- Builds macOS Intel
+- Builds Windows x64 NSIS installer
+- Supports `workflow_dispatch`
+- Uploads to a Draft Release for `v*` tags
+- Uploads Actions Artifacts for manual non-tag runs
+
+Release trigger example:
+
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-## 8. FAQ
+## About Signing and Notarization
 
-### `cargo check` error: `cmake not installed`
+This project currently does not sign or notarize macOS builds.
+
+That means:
+
+- macOS may block the app on first launch
+- This does not necessarily mean the app is corrupted
+- The current delivery model expects users to allow the app manually in Privacy & Security
+
+This is an intentional project decision for now.
+
+## FAQ
+
+### 1. `cargo` fails with `cmake not installed`
+
 Install `cmake` and retry:
+
 ```bash
 brew install cmake
 ```
 
-### Why no Windows `.exe` on my local macOS build
-macOS cannot natively produce Windows NSIS installers. Use:
+### 2. Why do I not get a Windows `.exe` on macOS
+
+Because macOS cannot natively build Windows NSIS installers.
+
+Use:
+
 - A Windows machine with `npm run build:win`
-- Or GitHub Actions Windows job (recommended)
+- Or the Windows GitHub Actions job
 
-### How to share `bundle/macos` with others
-Do not send `WhisperDesktop.app` folder directly (metadata may break during transfer). Recommended:
-1. Prefer sharing `.dmg`
-2. Or generate zip with `npm run package:mac:zip` and share the zip
+### 3. Why does `build:win` say it must run on Windows
 
-### What if others see "App is damaged" on macOS
-This is usually a Gatekeeper block on unsigned/unnotarized apps, not actual file corruption.
+That is an intentional guard.
 
-Try GUI-first (no command line):
-1. In Finder, right-click `WhisperDesktop.app` -> `Open`
-2. In the dialog, click `Open`
-3. If still blocked, go to `System Settings -> Privacy & Security`
-4. Find the blocked app message at the bottom, then click `Open Anyway` / `Allow`
+Reasons:
 
-If `Open Anyway` / `Allow` does not appear, use command line (temporary testing workaround):
+- The build needs to prepare `ffmpeg-windows-x64.exe`
+- The Windows Rust / linker / NSIS environment is required
+
+### 4. Why should I not send the raw `.app` folder directly
+
+Many transfer tools break macOS app bundle metadata.
+
+Recommended:
+
+1. Prefer `.dmg`
+2. Or use `npm run package:mac:zip:arm` / `npm run package:mac:zip:intel`
+
+### 5. What if macOS says the app is damaged or from an unidentified developer
+
+This is common for unsigned / unnotarized apps.
+
+Recommended user flow:
+
+1. Right-click the app in Finder and choose `Open`
+2. If still blocked, go to `System Settings -> Privacy & Security`
+3. Find the blocked app message and click `Open Anyway` or the equivalent button
+
+If necessary, use this temporary command:
+
 ```bash
 xattr -dr com.apple.quarantine /Applications/WhisperDesktop.app
 ```
-Then open the app again.
-
-You may also temporarily enable "Allow apps from anywhere" (not recommended for normal users):
-```bash
-sudo spctl --master-disable
-```
-After this, in `System Settings -> Privacy & Security`, you should see the "Anywhere" option.
-After testing, re-enable protection:
-```bash
-sudo spctl --master-enable
-```
 
 Notes:
-- `xattr` / "Anywhere" are temporary bypasses for testing distribution only.
-- "Allow from anywhere" reduces system security and should not be left enabled.
-- For production distribution, use Developer ID signing + Apple notarization so users do not need manual commands.
+
+- This is a temporary workaround for testing distribution
+- Since this project does not currently sign or notarize, this step is expected in some environments
+
+### 6. Why are models still there after uninstall on Windows
+
+The uninstall hook attempts to remove the model directory, but the final result still depends on:
+
+- File locks
+- Manual user changes
+- Runtime state during uninstall
+
+To verify manually, check:
+
+```text
+%APPDATA%\com.example.whisper-desktop\models
+```
+
+### 7. Why did transcription finish with no visible text
+
+Possible reasons:
+
+- The media contains no recognizable speech
+- Non-speech markers such as `[music]` / `[applause]` were filtered out
+
+Try:
+
+- Disable non-speech filtering and retry
+- Use a larger model
+- Select the language explicitly

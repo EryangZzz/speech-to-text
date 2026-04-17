@@ -16,7 +16,7 @@
         "width": 1240,
         "height": 820,
         "minWidth": 1024,
-        "minHeight": 680,
+        "minHeight": 760,
         "resizable": true,
         "fullscreen": false
       }
@@ -30,9 +30,7 @@
     "targets": [
       "dmg"
     ],
-    "resources": {
-      "resources/ffmpeg-macos-x64": "resources/ffmpeg-macos-x64"
-    },
+    "resources": {},
     "macOS": {
       "minimumSystemVersion": "12.0"
     },

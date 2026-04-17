@@ -76,23 +76,28 @@ const downloadSummary = computed(() => {
 })
 
 onMounted(async () => {
-  const ulDrop = await listen<{ paths: string[] }>('tauri://drag-drop', (event) => {
-    if (currentInputType.value !== 'local') return
-    const path = event.payload?.paths?.[0]
-    if (path) setFile(path)
-  })
+  try {
+    const ulDrop = await listen<{ paths: string[] }>('tauri://drag-drop', (event) => {
+      if (currentInputType.value !== 'local') return
+      const path = event.payload?.paths?.[0]
+      if (path) setFile(path)
+    })
 
-  const ulOver = await listen('tauri://drag-over', () => {
-    if (currentInputType.value === 'local') {
-      isDragOver.value = true
-    }
-  })
+    const ulOver = await listen('tauri://drag-over', () => {
+      if (currentInputType.value === 'local') {
+        isDragOver.value = true
+      }
+    })
 
-  const ulLeave = await listen('tauri://drag-leave', () => {
-    isDragOver.value = false
-  })
+    const ulLeave = await listen('tauri://drag-leave', () => {
+      isDragOver.value = false
+    })
 
-  persistentUnlisteners.push(ulDrop, ulOver, ulLeave)
+    persistentUnlisteners.push(ulDrop, ulOver, ulLeave)
+  } catch (e) {
+    statusMsg.value = `拖拽功能初始化失败: ${String(e)}`
+  }
+
   await loadModelsDir()
   await checkModel()
 })
@@ -113,6 +118,13 @@ function setFile(path: string) {
   selectedFilePath.value = path
   const name = path.replace(/\\/g, '/').split('/').pop() ?? path
   statusMsg.value = `已选择文件：${name}`
+}
+
+function onDropZoneKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    void openFilePicker()
+  }
 }
 
 async function openFilePicker() {
@@ -174,25 +186,27 @@ async function downloadModel() {
   downloadSpeedBps.value = 0
   statusMsg.value = '正在下载模型...'
 
-  const ul = await listen<{ percent: number; downloaded: number; total: number; speed_bps?: number }>(
-    'model-download-progress',
-    (event) => {
-    progressPercent.value = event.payload.percent
-    downloadDoneBytes.value = event.payload.downloaded ?? 0
-    downloadTotalBytes.value = event.payload.total ?? 0
-    downloadSpeedBps.value = event.payload.speed_bps ?? 0
-    statusMsg.value = `模型下载中... ${event.payload.percent.toFixed(1)}%`
-    },
-  )
+  let ul: UnlistenFn | null = null
 
   try {
+    ul = await listen<{ percent: number; downloaded: number; total: number; speed_bps?: number }>(
+      'model-download-progress',
+      (event) => {
+        progressPercent.value = event.payload.percent
+        downloadDoneBytes.value = event.payload.downloaded ?? 0
+        downloadTotalBytes.value = event.payload.total ?? 0
+        downloadSpeedBps.value = event.payload.speed_bps ?? 0
+        statusMsg.value = `模型下载中... ${event.payload.percent.toFixed(1)}%`
+      },
+    )
+
     await invoke('download_model_cmd', { size: modelSize.value })
     statusMsg.value = '模型下载完成'
     await checkModel()
   } catch (e) {
     statusMsg.value = `模型下载失败: ${String(e)}`
   } finally {
-    ul()
+    if (ul) ul()
     isDownloading.value = false
     progressPercent.value = 0
     progressIndeterminate.value = false
@@ -201,54 +215,57 @@ async function downloadModel() {
 }
 
 async function startTranscribe() {
-  const exists = await invoke<boolean>('check_model', { size: modelSize.value })
-  if (!exists) {
-    statusMsg.value = '请先下载模型'
-    return
-  }
-
-  const audioInput = currentInputType.value === 'url' ? urlValue.value.trim() : selectedFilePath.value!
-  const inputType = currentInputType.value
-
-  isTranscribing.value = true
-  resultText.value = ''
-  segments.value = []
-  progressPercent.value = 0
-  progressIndeterminate.value = false
-
   let ulMedia: UnlistenFn | null = null
-  if (inputType === 'url') {
-    statusMsg.value = '正在下载媒体文件...'
-    ulMedia = await listen<{ percent: number; indeterminate: boolean }>('media-download-progress', (event) => {
-      progressIndeterminate.value = event.payload.indeterminate
-      progressPercent.value = event.payload.percent
-      statusMsg.value = event.payload.indeterminate
-        ? '下载中...'
-        : `下载中... ${event.payload.percent.toFixed(1)}%`
-    })
-  } else {
-    statusMsg.value = '转写中...'
-  }
-
-  const ulTranscribe = await listen<{ percent: number }>('transcribe-progress', (event) => {
-    progressIndeterminate.value = false
-    progressPercent.value = event.payload.percent
-    statusMsg.value = `转写中... ${event.payload.percent}%`
-  })
-
-  const ulStage = await listen<{ stage: string; percent: number }>('transcribe-stage', (event) => {
-    progressIndeterminate.value = false
-    progressPercent.value = event.payload.percent
-    if (event.payload.stage === 'loading_model') {
-      statusMsg.value = `加载模型中... ${event.payload.percent}%`
-    } else if (event.payload.stage === 'decoding_audio') {
-      statusMsg.value = `解析音频中... ${event.payload.percent}%`
-    } else {
-      statusMsg.value = `准备推理中... ${event.payload.percent}%`
-    }
-  })
+  let ulTranscribe: UnlistenFn | null = null
+  let ulStage: UnlistenFn | null = null
 
   try {
+    const exists = await invoke<boolean>('check_model', { size: modelSize.value })
+    if (!exists) {
+      statusMsg.value = '请先下载模型'
+      return
+    }
+
+    const audioInput = currentInputType.value === 'url' ? urlValue.value.trim() : selectedFilePath.value!
+    const inputType = currentInputType.value
+
+    isTranscribing.value = true
+    resultText.value = ''
+    segments.value = []
+    progressPercent.value = 0
+    progressIndeterminate.value = false
+
+    if (inputType === 'url') {
+      statusMsg.value = '正在下载媒体文件...'
+      ulMedia = await listen<{ percent: number; indeterminate: boolean }>('media-download-progress', (event) => {
+        progressIndeterminate.value = event.payload.indeterminate
+        progressPercent.value = event.payload.percent
+        statusMsg.value = event.payload.indeterminate
+          ? '下载中...'
+          : `下载中... ${event.payload.percent.toFixed(1)}%`
+      })
+    } else {
+      statusMsg.value = '转写中...'
+    }
+
+    ulTranscribe = await listen<{ percent: number }>('transcribe-progress', (event) => {
+      progressIndeterminate.value = false
+      progressPercent.value = event.payload.percent
+      statusMsg.value = `转写中... ${event.payload.percent}%`
+    })
+
+    ulStage = await listen<{ stage: string; percent: number }>('transcribe-stage', (event) => {
+      progressIndeterminate.value = false
+      progressPercent.value = event.payload.percent
+      if (event.payload.stage === 'loading_model') {
+        statusMsg.value = `加载模型中... ${event.payload.percent}%`
+      } else if (event.payload.stage === 'decoding_audio') {
+        statusMsg.value = `解析音频中... ${event.payload.percent}%`
+      } else {
+        statusMsg.value = `准备推理中... ${event.payload.percent}%`
+      }
+    })
+
     const result = await invoke<Segment[]>('transcribe_audio', {
       audioInput,
       inputType,
@@ -259,13 +276,15 @@ async function startTranscribe() {
     })
     segments.value = result
     resultText.value = result.map((s) => s.text).join('\n')
-    statusMsg.value = `转写完成：${result.length} 段`
+    statusMsg.value = result.length
+      ? `转写完成：${result.length} 段`
+      : '转写完成，但未得到可展示文本。可关闭“过滤非语音标签”后重试。'
   } catch (e) {
     statusMsg.value = `转写失败: ${String(e)}`
   } finally {
     if (ulMedia) ulMedia()
-    ulTranscribe()
-    ulStage()
+    if (ulTranscribe) ulTranscribe()
+    if (ulStage) ulStage()
     isTranscribing.value = false
     progressPercent.value = 0
     progressIndeterminate.value = false
@@ -280,17 +299,24 @@ async function exportAs(format: 'txt' | 'srt') {
 
   const ext = format === 'srt' ? 'srt' : 'txt'
   const name = format === 'srt' ? '字幕文件' : '文本文件'
-  const outputPath = await save({ filters: [{ name, extensions: [ext] }] })
-  if (!outputPath) return
+  try {
+    const outputPath = await save({ filters: [{ name, extensions: [ext] }] })
+    if (!outputPath) {
+      statusMsg.value = '已取消导出'
+      return
+    }
 
-  await invoke('export_result', {
-    segments: segments.value,
-    resultText: resultText.value,
-    outputPath,
-    format,
-  })
+    await invoke('export_result', {
+      segments: segments.value,
+      resultText: resultText.value,
+      outputPath,
+      format,
+    })
 
-  statusMsg.value = `已导出 ${ext.toUpperCase()}`
+    statusMsg.value = `已导出 ${ext.toUpperCase()}`
+  } catch (e) {
+    statusMsg.value = `导出失败: ${String(e)}`
+  }
 }
 
 function formatSrtTime(ms: number): string {
@@ -341,7 +367,10 @@ function clearResultText() {
           <div
             v-if="currentInputType === 'local'"
             :class="['drop', { dragover: isDragOver, hasfile: selectedFilePath }]"
+            role="button"
+            tabindex="0"
             @click="openFilePicker"
+            @keydown="onDropZoneKeydown"
           >
             <p class="drop-title">拖拽文件到这里，或点击选择</p>
             <p class="drop-meta">支持 mp3/mp4/wav/m4a/ogg/flac/mkv/avi/mov/webm</p>
@@ -400,8 +429,8 @@ function clearResultText() {
           </label>
 
           <div class="row-actions">
-            <button type="button" class="ghost" @click="openModelsDir">打开模型目录</button>
-            <button type="button" class="ghost" @click="clearModels">清理模型</button>
+            <button type="button" class="ghost" :disabled="isDownloading || isTranscribing" @click="openModelsDir">打开模型目录</button>
+            <button type="button" class="ghost" :disabled="isDownloading || isTranscribing" @click="clearModels">清理模型</button>
           </div>
           <p v-if="modelsDir" class="path">{{ modelsDir }}</p>
 
@@ -486,13 +515,14 @@ function clearResultText() {
   --focus: #ff8a3d;
   --soft: #efe5d8;
   height: 100vh;
+  height: 100dvh;
   color: var(--ink);
   background:
     radial-gradient(1600px 500px at 5% -20%, #fff8d9 0%, rgba(255, 248, 217, 0) 55%),
     radial-gradient(1200px 500px at 95% -10%, #d8efe9 0%, rgba(216, 239, 233, 0) 58%),
     var(--bg);
   padding: 26px;
-  font-family: 'Avenir Next', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-family: 'Avenir Next', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   position: relative;
   overflow: hidden;
   display: flex;
@@ -529,7 +559,7 @@ function clearResultText() {
   font-size: 34px;
   line-height: 1.08;
   letter-spacing: 0.01em;
-  font-family: 'Baskerville', 'Times New Roman', serif;
+  font-family: 'Baskerville', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
 }
 
 .subtitle {
@@ -561,8 +591,10 @@ function clearResultText() {
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  scrollbar-gutter: stable;
 }
 
 .card {
@@ -617,6 +649,11 @@ function clearResultText() {
 .drop:hover { transform: translateY(-1px); }
 .drop.dragover { border-color: var(--focus); background: #fff2e6; }
 .drop.hasfile { border-color: var(--accent); }
+.drop:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 4px rgba(255, 138, 61, 0.18);
+}
 
 .drop-title {
   margin: 0;
@@ -676,6 +713,13 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(255, 138, 61, 0.2);
 }
 
+button:focus-visible,
+.chip:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgba(255, 138, 61, 0.22);
+}
+
 .inline-note {
   margin: 7px 0 0;
   font-size: 12px;
@@ -704,9 +748,10 @@ textarea:focus {
 
 .path {
   margin: 8px 0 0;
-  font-size: 11px;
-  color: var(--muted);
+  font-size: 12px;
+  color: #655b53;
   word-break: break-all;
+  line-height: 1.45;
 }
 
 .toggle-line {
@@ -779,22 +824,24 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .status {
   margin: 10px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-  min-height: 18px;
+  font-size: 13px;
+  color: #504740;
+  line-height: 1.45;
+  min-height: 38px;
 }
 
 .download-meta {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   color: #4e6f6a;
   font-variant-numeric: tabular-nums;
 }
 
 .noise-note {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   color: #5e7f7a;
+  line-height: 1.45;
 }
 
 .result-panel {
@@ -808,7 +855,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -835,6 +882,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .toolbar {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -869,6 +917,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
+  scrollbar-gutter: stable;
 }
 
 .timeline-item {
@@ -911,6 +960,7 @@ textarea {
   font-size: 14px;
   background: #fffdf9;
   overflow: auto;
+  min-height: 0;
 }
 
 .preview-grid {
@@ -920,6 +970,27 @@ textarea {
   gap: 12px;
   height: 100%;
   overflow: hidden;
+}
+
+.control-panel::-webkit-scrollbar,
+.timeline-list::-webkit-scrollbar,
+textarea::-webkit-scrollbar {
+  width: 10px;
+}
+
+.control-panel::-webkit-scrollbar-thumb,
+.timeline-list::-webkit-scrollbar-thumb,
+textarea::-webkit-scrollbar-thumb {
+  background: #d5c8b7;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.control-panel::-webkit-scrollbar-track,
+.timeline-list::-webkit-scrollbar-track,
+textarea::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 @keyframes run {
@@ -932,6 +1003,16 @@ textarea {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+  .preview-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 1fr) minmax(220px, 1fr);
+  }
+}
+
 @media (max-width: 980px) {
   .shell { padding: 14px; }
   .layout {
@@ -940,6 +1021,15 @@ textarea {
   }
   .control-panel { max-height: none; }
   .stats { grid-template-columns: 1fr; }
+  .row-actions {
+    grid-template-columns: 1fr;
+  }
+  .toolbar {
+    justify-content: stretch;
+  }
+  .toolbar button {
+    flex: 1 1 180px;
+  }
   .preview-grid {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(220px, 1fr) minmax(180px, 1fr);
@@ -986,6 +1076,12 @@ textarea {
   .result-panel {
     gap: 8px;
     padding: 10px;
+  }
+  .toolbar {
+    gap: 6px;
+  }
+  .toolbar button {
+    flex: 1 1 140px;
   }
   .stats article {
     padding: 9px 10px;
