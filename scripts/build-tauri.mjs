@@ -8,21 +8,29 @@ if (!mode || !target) {
   process.exit(1)
 }
 
-const nodeRunner = process.platform === 'win32' ? 'node.exe' : 'node'
-const prepare = spawnSync(nodeRunner, ['scripts/configure-tauri.mjs', mode], {
-  stdio: 'inherit',
-})
+function runOrExit(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    ...options,
+  })
 
-if (prepare.status !== 0) {
-  process.exit(prepare.status ?? 1)
+  if (result.error) {
+    console.error(`Failed to start command: ${command}`)
+    console.error(result.error.message)
+    process.exit(1)
+  }
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1)
+  }
 }
 
-const generatedConfig = `src-tauri/gen/tauri.bundle.${mode}.json`
-const npmRunner = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-const build = spawnSync(
-  npmRunner,
-  ['run', 'tauri', '--', 'build', '--config', generatedConfig, '--target', target],
-  { stdio: 'inherit' },
-)
+runOrExit(process.execPath, ['scripts/configure-tauri.mjs', mode])
 
-process.exit(build.status ?? 1)
+const generatedConfig = `src-tauri/gen/tauri.bundle.${mode}.json`
+runOrExit(
+  process.platform === 'win32' ? 'npm.cmd' : 'npm',
+  ['run', 'tauri', '--', 'build', '--config', generatedConfig, '--target', target],
+  { shell: process.platform === 'win32' },
+)
